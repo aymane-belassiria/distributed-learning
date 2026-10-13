@@ -1,0 +1,54 @@
+syntax = "proto3";
+
+package hr.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/aymane-belassiria/hr-platform/gen/go/hr/v1;hrv1";
+
+message Employee {
+  string id = 1;
+  string employee_code = 2;
+  string first_name = 3;
+  string last_name = 4;
+  string email = 5;
+  string department_id = 6;
+  string position = 7;
+  string employment_type = 8;
+  string status = 9;
+  google.protobuf.Timestamp created_at = 10;
+}
+
+message CreateEmployeeRequest {
+  string first_name = 1;
+  string last_name = 2;
+  string email = 3;
+  string department_id = 4;
+  string position = 5;
+  string employment_type = 6;
+}
+message CreateEmployeeResponse {
+  Employee employee = 1;
+}
+
+message GetEmployeeRequest {
+  string id = 1;
+}
+message GetEmployeeResponse {
+  Employee employee = 1;
+}
+
+message ListEmployeesRequest {
+  int32 page_size = 1;
+  string page_token = 2;
+}
+message ListEmployeesResponse {
+  repeated Employee employees = 1;
+  string next_page_token = 2;
+}
+
+service EmployeeService {
+  rpc CreateEmployee(CreateEmployeeRequest) returns (CreateEmployeeResponse);
+  rpc GetEmployee(GetEmployeeRequest) returns (GetEmployeeResponse);
+  rpc ListEmployees(ListEmployeesRequest) returns (ListEmployeesResponse);
+}
