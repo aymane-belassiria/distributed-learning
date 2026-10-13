@@ -3,6 +3,10 @@
 Each pattern: what it is, where it lives in the HR platform, and an exercise that
 makes it click. There is no answer key — the exercise is the spec.
 
+> The data-layer patterns (indexes, isolation, replication, sharding, 2PC vs
+> Sagas, distributed locks) get the full treatment in
+> [09-databases.md](09-databases.md). What follows is the system-level view.
+
 ## 1. Database-per-service
 
 **What:** each service owns its schema and is the only writer; no cross-service
@@ -51,7 +55,7 @@ a **status check** so a replayed `leave.decided` cannot double-count balance.
 
 **Exercise:** apply the same `leave.approved` event twice and assert the Redis
 counter increments once (use an event id or a status guard). Then do the same with
-the DynamoDB idempotency table from Phase 10.
+the DynamoDB idempotency table from v2.5.
 
 ## 5. Cache-aside (distributed cache)
 

@@ -14,7 +14,7 @@ the checkpoint passes.
 ### Block 1 · Toolchain & infra (30–45 min)
 - Install Go 1.24+, make, Docker; then sqlc, buf, and the protoc plugins.
 - `make dev-up` (Postgres, Redis, Redpanda, LGTM).
-- Skim `docs/00-architecture.md` and the data model.
+- Skim `00-architecture.md` and the data model.
 
 **Checkpoint:** `docker compose ps` shows four healthy containers; Grafana on
 http://localhost:3300 loads.
@@ -62,6 +62,18 @@ invalidation.
 
 **Checkpoint:** all validation tests green; an overlapping request is rejected
 with a machine-readable list of reasons; approving adjusts the balance.
+
+### Block 7b · Databases: plans, indexes & constraints (45–60 min, optional)
+- Follow [09-databases.md](09-databases.md) Parts A–C.
+- Turn on `pg_stat_statements` + `auto_explain`; `EXPLAIN (ANALYZE, BUFFERS)` the
+  overlap query; add `idx_leave_overlap` and confirm the node changes.
+- Add the `btree_gist` **exclusion constraint** and map `23P01` → 409.
+- **Checkpoint:** the overlap query uses an index; two concurrent overlapping
+  inserts leave exactly one winner.
+
+> The distributed half of [09-databases.md](09-databases.md) (replication,
+> sharding, CAP/PACELC, 2PC vs Sagas) is stretch reading — thread it in as you
+> like, but don't put it on the two-day deadline.
 
 ---
 

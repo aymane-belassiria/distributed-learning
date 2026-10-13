@@ -117,9 +117,9 @@ gateway GET /api/v1/reports/departments → reporting.GetDepartmentSummary
 8. the notice period is too short (annual leave)
 
 Because these are pure functions over inputs (dates + existing rows + a holiday
-list), they make excellent table-driven tests — see Phase 7.
+list), they make excellent table-driven tests — see v1.5.
 
-## Failure modes to explore (Phase 13 exercises)
+## Failure modes to explore (v2.9 exercises)
 
 | Break this                       | Observe                                             |
 | -------------------------------- | --------------------------------------------------- |
@@ -129,6 +129,8 @@ list), they make excellent table-driven tests — see Phase 7.
 | Kill `reporting` mid-consume     | offsets not committed → events redelivered          |
 | Approve the same request twice   | second decision rejected (status guard)             |
 | Two approvals race               | only one wins (transaction + status guard)          |
+| Two overlapping requests race    | DB exclusion constraint rejects one (`23P01` → 409)  |
+| Read a report from a lagging replica | stale counts until replay catches up            |
 
 ## Layout you will build
 
@@ -144,3 +146,16 @@ list), they make excellent table-driven tests — see Phase 7.
 | Leave validation + approvals + outbox | `services/leave` |
 | Read model from events | `services/reporting` |
 | REST BFF, breakers, cache | `services/gateway` |
+
+## Where the database knowledge lives
+
+Index design, query planning (`EXPLAIN`), isolation levels, the `btree_gist`
+no-overlap constraint, partitioning and replication are covered in
+[09-databases.md](09-databases.md). Three invariants to carry through the
+whole build:
+
+- the **overlap rule** is applied in Go *and* ideally enforced by an exclusion
+  constraint — never only in application code;
+- **approvals** use a status guard, and the **balance** update locks its row;
+- the `reporting` read model may be **stale** — that is the deliberate trade-off
+  of the write/read split.

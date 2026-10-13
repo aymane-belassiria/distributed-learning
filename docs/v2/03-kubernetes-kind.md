@@ -1,7 +1,7 @@
 # 03 · Kubernetes with kind
 
 We run the whole HR platform on **kind** because it is fast, cheap and behaves
-like a real cluster. Later (`docs/05`) Terraform stands up an EKS control plane
+like a real cluster. Later (`docs/v2/05-terraform-floci.md`) Terraform stands up an EKS control plane
 inside Floci — the same manifests apply.
 
 ## 1. Create the cluster

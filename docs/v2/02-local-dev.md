@@ -109,6 +109,28 @@ docker exec -it <pg-container> psql -U hr -d leave
 docker exec -it <pg-container> psql -U hr -d employee -c 'select employee_code,status from employees;'
 ```
 
+## Debugging queries
+
+```sql
+-- 1. what is slow? (enable once per database)
+CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+SELECT calls, round(mean_exec_time::numeric,1) AS mean_ms, left(query,60) AS query
+FROM pg_stat_statements ORDER BY total_exec_time DESC LIMIT 10;
+
+-- 2. why is this slow?
+EXPLAIN (ANALYZE, BUFFERS, VERBOSE)
+SELECT 1 FROM leave_requests
+WHERE employee_id = '...' AND status <> 'cancelled'
+  AND start_date <= '2026-07-10' AND end_date >= '2026-07-01';
+
+-- 3. is the index actually used?
+SELECT indexrelid::regclass AS index, idx_scan
+FROM pg_stat_user_indexes ORDER BY idx_scan;
+```
+
+The full workflow — plan nodes, index types, isolation levels, constraints,
+replication and sharding — is in [09-databases.md](09-databases.md).
+
 ## Kafka
 
 ```bash
