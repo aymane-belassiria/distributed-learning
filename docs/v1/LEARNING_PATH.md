@@ -6,8 +6,13 @@ distributed system — no Kubernetes, no Terraform, no cloud.
 
 > **The v1 rule: minimum config, one concept at a time.**
 > Add a dependency to `docker-compose.yml` only when the phase you're on needs
-> it. Don't copy the "full" stack. Each phase below says exactly what to add and
+> it. Don't copy the "full" stack. Each ticket below says exactly what to add and
 > what to defer.
+
+**Session size:** every ticket is scoped to **one sitting (~1 hour) after work**.
+Each one ends on a green checkpoint you can see with your own eyes — if a ticket
+starts to sprawl, stop at the last checkpoint and pick up the next letter. You
+never need to leave the repo in a broken state between sittings.
 
 Once v1 works, go to [v2](../v2/LEARNING_PATH.md) for the ops + deep track and
 the final assembled project.
@@ -27,248 +32,253 @@ browser/curl → gateway (:8080) → leave (:50052) → employee (:50051)
 - `reporting` — consumes events, Redis counters.
 - `gateway` — REST BFF, cache-aside.
 
-Ports: Postgres **55432**, Redis **6379**, Redpanda **9092**, services
+Ports: Postgres **55432** (you actually used **54322** — stay consistent with
+your own compose), Redis **6379**, Redpanda **9092**, services
 **50051/50052/50053**, gateway **8080**.
 
 ---
 
 ## Checklist
 
-- [ ] v1.0 — Minimal infra (Postgres + Redis)
-- [ ] v1.1 — Contracts & sqlc (employee first)
-- [ ] v1.2 — Employee service (gRPC + Postgres)
-- [ ] v1.3 — Gateway + cache-aside
-- [ ] v1.4 — Events: Redpanda + transactional outbox
-- [ ] v1.5 — Leave service: validation + approvals ← the centerpiece
-- [ ] v1.6 — Basic logging (structured + request id)
-- [ ] v1.7 — Reporting read model (consumer + Redis)
-- [ ] v1.8 — Run the whole slice end to end
+- [ ] **v1.0** — Minimal infra (Postgres + Redis)
+- [ ] **v1.1** — Contracts & sqlc
+  - [ ] v1.1a — proto + buf generate
+  - [ ] v1.1b — sqlc config + schema + queries
+- [ ] **v1.2** — Employee service
+  - [ ] v1.2a — gRPC skeleton boots
+  - [ ] v1.2b — implement Create / Get / List
+  - [ ] v1.2c — unit tests
+- [ ] **v1.3** — Gateway + cache-aside
+  - [ ] v1.3a — REST gateway over gRPC
+  - [ ] v1.3b — Redis cache-aside + `X-Cache`
+  - [ ] v1.3c — cache-aside test
+- [ ] **v1.4** — Events: Redpanda + outbox
+  - [ ] v1.4a — Redpanda + producer
+  - [ ] v1.4b — outbox table + transactional write
+  - [ ] v1.4c — relay
+  - [ ] v1.4d — outage drill
+- [ ] **v1.5** — Leave service ← the centerpiece
+  - [ ] v1.5a — leave proto + sqlc + DB
+  - [ ] v1.5b — `workingDays` + tests
+  - [ ] v1.5c — `ValidateLeaveRequest`
+  - [ ] v1.5d — `SubmitLeaveRequest`
+  - [ ] v1.5e — `DecideLeaveRequest`
+  - [ ] v1.5f — call `employee` over gRPC
+- [ ] **v1.6** — Basic logging
+  - [ ] v1.6a — structured `slog` logger
+  - [ ] v1.6b — request id across services
+- [ ] **v1.7** — Reporting read model
+  - [ ] v1.7a — Kafka consumer
+  - [ ] v1.7b — Redis counters + endpoint
+  - [ ] v1.7c — replay drill
+- [ ] **v1.8** — Run the whole slice
+  - [ ] v1.8a — end-to-end script
+  - [ ] v1.8b — `NOTES.md` review
 
 ---
 
-## v1.0 · Minimal infra (Postgres + Redis)
+## v1.0 · Minimal infra (Postgres + Redis) · ⏱ ~1h
 
-**Goal:** two containers, nothing else.
+**Build:** `docker-compose.yaml` with just `postgres:16-alpine` and
+`redis:7-alpine`, plus a named volume. Use the **mapping** form for env vars
+(`POSTGRES_USER: hr`), not `- POSTGRES_USER = hr`.
 
-**Add to `docker-compose.yml` — only this:**
-
-```yaml
-services:
-  postgres:
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_USER: hr
-      POSTGRES_PASSWORD: hr
-      POSTGRES_DB: postgres
-    ports: ["55432:5432"]
-    volumes: ["pg_data:/var/lib/postgresql/data"]
-
-  redis:
-    image: redis:7-alpine
-    ports: ["6379:6379"]
-
-volumes:
-  pg_data:
-```
-
-**Know it works**
-
+**Done when:**
 ```bash
-docker compose up -d
-docker compose ps
-docker compose exec postgres psql -U hr -d postgres -c '\l'   # lists databases
-docker compose exec redis redis-cli ping                       # PONG
+docker compose up -d && docker compose ps                     # both Up
+docker compose exec postgres psql -U hr -d postgres -c '\l'   # lists DBs
+docker compose exec redis redis-cli ping                      # PONG
 ```
 
-**Deferred to v1.4:** Redpanda. **Deferred to v2:** LGTM observability stack,
-Redis auth, healthchecks, `.env`, the three-database init script.
+**Defer:** Redpanda (v1.4a); LGTM stack, healthchecks, auth (v2).
 
 ---
 
-## v1.1 · Contracts & sqlc (employee first)
+## v1.1 · Contracts & sqlc
 
-**Goal:** learn how `.proto` and SQL become typed Go — for **one** service.
+### v1.1a · proto + buf · ⏱ ~1h
+**Build:** `go mod init github.com/aymane-belassiria/hr-platform`; `buf.yaml` +
+`buf.gen.yaml`; `proto/hr/v1/employee.proto` with **one** service
+(`EmployeeService`: `CreateEmployee`, `GetEmployee`, `ListEmployees`) and
+`go_package` set to the module path.
+**Done when:** `buf lint` clean, `buf generate` wrote `gen/go/hr/v1/*.pb.go`,
+and `go build ./...` compiles the generated package.
+**Defer:** leave/reporting protos (v1.5a).
 
-**Create**
-- `go mod init github.com/aymane-belassiria/hr-platform`
-- `proto/hr/v1/employee.proto` — just `EmployeeService` with
-  `CreateEmployee`, `GetEmployee`, `ListEmployees`.
-- `buf.yaml` + `buf.gen.yaml` → `buf lint && buf generate` → look in `gen/`.
-- `sqlc.yaml` with **one** block (database `employee`).
-- `services/employee/db/migrations/0001_init.sql` (departments + employees) and
-  `services/employee/db/queries/employees.sql`.
-- `sqlc generate` → read the generated `db` package.
-
-**Know it works:** `go build ./...` compiles and you can explain every override
-in `sqlc.yaml` (e.g. `timestamptz` → `time.Time`).
-
-**Defer:** the `leave`/`reporting` protos, their sqlc blocks and migrations.
-
-**Guide:** [../v2/00-architecture.md](../v2/00-architecture.md) (data model),
-[../v2/02-local-dev.md](../v2/02-local-dev.md) (generate/run).
+### v1.1b · sqlc config + schema + queries · ⏱ ~1h
+**Build:** `sqlc.yaml` with a **single** employee block;
+`services/employee/db/migrations/0001_init.sql` (departments + employees);
+`services/employee/db/queries/employees.sql` (Create / Get / List); run
+`sqlc generate`.
+**Done when:** the generated `db` package compiles, you can name every field of
+`CreateEmployeeParams`, and there are **no stale generated files** (renaming a
+query file means deleting the old `*.sql.go`).
+**Defer:** leave/reporting sqlc blocks.
 
 ---
 
-## v1.2 · Employee service (gRPC + Postgres)
+## v1.2 · Employee service
 
-**Goal:** the first running service.
+### v1.2a · gRPC skeleton boots · ⏱ ~1h
+**Build:** create the `employee` database and apply the `-- +goose Up` half of
+the migration by hand. Write `services/employee/cmd/server/main.go`: open a
+`pgxpool`, `Ping`, `grpc.NewServer()`, register the service (methods may still
+return `Unimplemented`), `reflection.Register`, listen on `:50051`, graceful
+shutdown on SIGINT/SIGTERM.
+**Done when:** the server logs "listening", and
+`grpcurl -plaintext localhost:50051 list` shows `hr.v1.EmployeeService`.
+**Defer:** embedded goose auto-migrations.
 
-**Create** `services/employee/...` implementing `EmployeeService`: create (insert
-employee), get, list. Add `cmd/server/main.go`. Run migrations from an embedded
-FS on startup.
+### v1.2b · Implement Create / Get / List · ⏱ ~1h
+**Build:** `services/employee/internal/service/service.go` — embed
+`UnimplementedEmployeeServiceServer`, implement the three RPCs against
+`db.Queries`. Add small helpers: uuid ↔ string, empty-string → SQL `NULL` uuid,
+default `employment_type`, generated `employee_code`. Map `pgx.ErrNoRows` →
+`NotFound`, bad input → `InvalidArgument`.
+**Done when:** `grpcurl` Create then Get/List return real rows; a bad uuid is
+`NotFound`; a missing name/email is `InvalidArgument`.
+**Defer:** outbox row (v1.4b), circuit breaker (v2.1), tracing (v2.0).
 
-**Write tests:** employee code normalization; an integration test (Testcontainers)
-for create + get.
-
-**Prove it**
-
-```bash
-go run ./services/employee/cmd/server        # :50051
-grpcurl -plaintext -d '{"first_name":"Amine","last_name":"Idrissi","email":"a@x.ma"}' \
-  localhost:50051 hr.v1.EmployeeService/CreateEmployee
-```
-
-**Defer:** the outbox row (v1.4), the circuit breaker (v2), tracing (v2).
+### v1.2c · Unit tests · ⏱ ~1h
+**Build:** table tests for the pure helpers (`newEmployeeCode` format,
+`defaultEmploymentType`).
+**Done when:** `go test ./services/employee/...` is green.
+**Defer:** Testcontainers integration test (v2.7c).
 
 ---
 
 ## v1.3 · Gateway + cache-aside
 
-**Goal:** the REST edge with a real cache.
+### v1.3a · REST gateway over gRPC · ⏱ ~1h
+**Build:** `services/gateway/` with `/healthz`, `GET/POST /api/v1/employees`,
+`GET /api/v1/employees/{id}`. Dial `employee` over gRPC; translate JSON ↔ proto.
+**Done when:** `curl localhost:8080/api/v1/employees` returns the rows from
+`employee`.
 
-**Create** `services/gateway/` with a few routes:
-`GET/POST /api/v1/employees`, `GET /api/v1/employees/{id}`, plus `/healthz`.
-Cache the list in Redis; set an `X-Cache: HIT|MISS` header.
+### v1.3b · Redis cache-aside · ⏱ ~1h
+**Build:** connect the gateway to Redis; on list: read cache → miss = call
+`employee` + store → set `X-Cache: HIT|MISS`.
+**Done when:** the same curl twice shows `MISS` then `HIT`.
 
-**Write tests:** the cache-aside helper (miss loads then stores; hit skips load).
-
-**Prove it**
-
-```bash
-curl -sD- -o/dev/null localhost:8080/api/v1/employees | grep -i x-cache   # MISS
-curl -sD- -o/dev/null localhost:8080/api/v1/employees | grep -i x-cache   # HIT
-```
-
-**Defer:** circuit breaker (v2), CORS/React (v2).
+### v1.3c · cache-aside test · ⏱ ~1h
+**Build:** a test for the helper (miss loads then stores; hit skips the load) with
+a fake loader + in-memory/`miniredis`.
+**Done when:** `go test ./services/gateway/...` green.
+**Defer:** breaker, CORS/React (v2).
 
 ---
 
 ## v1.4 · Events: Redpanda + transactional outbox
 
-**Goal:** publish reliably. This is where you add the third container.
+### v1.4a · Redpanda + producer · ⏱ ~1h
+**Build:** add the minimal `redpanda` service to compose (single broker, 1G,
+`PLAINTEXT://redpanda:29092, OUTSIDE://localhost:9092`); a thin `pkg/broker`
+producer.
+**Done when:** a smoke program produces a message and you can read it back
+(`rpk topic consume`).
 
-**Add** Redpanda to `docker-compose.yml` (minimal):
+### v1.4b · outbox table + transactional write · ⏱ ~1h
+**Build:** add an `outbox` table; make `CreateEmployee` write the employee **and**
+an `employee.created` outbox row in **one transaction**.
+**Done when:** creating an employee leaves exactly one unpublished outbox row.
 
-```yaml
-  redpanda:
-    image: redpandadata/redpanda:v24.3.1
-    command:
-      - redpanda
-      - start
-      - --overprovisioned
-      - --smp=1
-      - --memory=1G
-      - --check=false
-      - --kafka-addr=PLAINTEXT://0.0.0.0:29092,OUTSIDE://0.0.0.0:9092
-      - --advertise-kafka-addr=PLAINTEXT://redpanda:29092,OUTSIDE://localhost:9092
-    ports: ["9092:9092"]
-```
+### v1.4c · relay · ⏱ ~1h
+**Build:** a relay that polls unpublished rows, publishes to Kafka, marks
+`published_at`.
+**Done when:** after the relay runs, unpublished count is 0 and the topic has the
+event.
 
-**Create**
-- an `outbox` table; `CreateEmployee` writes the employee **and** an
-  `employee.created` outbox row in **one transaction**.
-- a relay that polls, publishes to Kafka, marks published.
-- a thin `pkg/broker` producer.
-
-**Prove it** (the outage test)
-
-```bash
-docker compose stop redpanda
-curl -s -XPOST localhost:8080/api/v1/employees -H 'Content-Type: application/json' -d '{...}'
-docker compose exec postgres psql -U hr -d employee \
-  -c 'select count(*) from outbox where published_at is null;'   # grows
-docker compose start redpanda                                    # relay drains it
-```
-
+### v1.4d · outage drill · ⏱ ~1h
+**Build:** no code — run the drill.
+**Done when:** stop Redpanda → create → unpublished count **grows** → start
+Redpanda → the relay **drains** it. That's the whole point of the outbox.
 **Defer:** consumer groups / idempotency (v1.7, v2.3).
 
 ---
 
 ## v1.5 · Leave service: validation + approvals ← the centerpiece
 
-**Goal:** the real business logic.
+### v1.5a · leave proto + sqlc + DB · ⏱ ~1h
+**Build:** `proto/hr/v1/leave.proto` (`LeaveService`); a second `sqlc.yaml` block;
+create the `leave` database + migration (`leave_requests`, balances).
+**Done when:** the generated leave `db` package compiles and the DB exists.
 
-**Add** the `leave` proto, its sqlc block, and a `leave` database (add an
-`init.sql` or create the DB manually). Implement `LeaveService`:
-- `workingDays(start, end, holidays)` — skip weekends/holidays.
-- `ValidateLeaveRequest` — reject on: inactive/missing employee, bad dates, zero
-  working days, overlap, insufficient balance, short notice, over max consecutive,
-  unknown leave type. Return **all** reasons.
-- `SubmitLeaveRequest` — validate → insert `requested` + outbox `leave.requested`.
-- `DecideLeaveRequest` — approve/reject in a transaction; update the balance;
-  guard against deciding twice.
-- The service calls `employee.GetEmployee` over gRPC.
+### v1.5b · `workingDays` + tests · ⏱ ~1h
+**Build:** `workingDays(start, end, holidays)` — skip weekends/holidays.
+**Done when:** a table test covers a weekend span and a holiday span.
 
-**Write tests (table-driven — the fun part):** one case per rule; plus a
-"decide twice" test.
+### v1.5c · `ValidateLeaveRequest` · ⏱ ~1h
+**Build:** reject on inactive/missing employee, bad dates, zero working days,
+overlap, insufficient balance, short notice, over max consecutive, unknown type.
+Return **all** reasons, not the first.
+**Done when:** one table-driven case per rule is green.
 
-**Prove it**
+### v1.5d · `SubmitLeaveRequest` · ⏱ ~1h
+**Build:** validate → insert `requested` + outbox `leave.requested`, one tx.
+**Done when:** a valid request persists and emits; an invalid one returns the
+reason list.
 
-```bash
-# valid
-curl -s -XPOST localhost:8080/api/v1/leave-requests -H 'Content-Type: application/json' \
-  -d '{"employee_id":"<uuid>","leave_type":"annual","start_date":"2026-07-01","end_date":"2026-07-10"}'
-# overlapping -> 4xx with machine-readable reasons
-curl -s -XPOST localhost:8080/api/v1/leave-requests -d '{...overlapping...}'
-```
+### v1.5e · `DecideLeaveRequest` · ⏱ ~1h
+**Build:** approve/reject in a transaction; update the balance; guard against
+deciding twice.
+**Done when:** deciding the same request twice returns a conflict (not a double
+deduction).
 
-**Defer:** the `btree_gist` constraint and isolation levels (v2.2), retries /
-circuit breaker (v2.1).
-
----
-
-## v1.6 · Basic logging (structured + request id)
-
-**Goal:** logs you can actually follow across services.
-
-**Create** `pkg/logger` — a `slog` JSON handler that adds a `service` field and a
-per-request id (and, if you already carry a context value, a trace id). Wire it
-into every service's main.
-
-**Prove it:** make a leave request and follow the same request id through the
-`gateway` → `leave` → `employee` log lines.
-
-**Defer:** full OpenTelemetry (spans, metrics, exporters) → **v2.0**.
+### v1.5f · call `employee` over gRPC · ⏱ ~1h
+**Build:** dial `employee` from `leave`; validate against the real employee +
+department.
+**Done when:** a request for a non-existent/terminated employee is rejected via
+the gRPC lookup.
+**Defer:** `btree_gist` + isolation levels (v2.2), retries/breaker (v2.1).
 
 ---
 
-## v1.7 · Reporting read model (consumer + Redis)
+## v1.6 · Basic logging
 
-**Goal:** build a read model from events.
+### v1.6a · structured logger · ⏱ ~1h
+**Build:** `pkg/logger` — an `slog` JSON handler that adds a `service` field; wire
+it into every `main`.
+**Done when:** every service's output is JSON with `"service":"..."`.
 
-**Add** the `reporting` service with a Kafka consumer (consumer group) handling
-`leave.requested`/`leave.decided`/`employee.created`, incrementing Redis counters
-(pending per department, days used per month). Expose
-`GET /api/v1/reports/departments`.
+### v1.6b · request id across services · ⏱ ~1h
+**Build:** middleware that generates/propagates a request id (gRPC metadata +
+context) and logs it.
+**Done when:** one leave request shows the **same** id in gateway → leave →
+employee log lines.
+**Defer:** OpenTelemetry spans/metrics (v2.0).
 
-**Prove it:** submit + approve and watch the summary change; replay the topic and
-confirm no double counting.
+---
 
+## v1.7 · Reporting read model
+
+### v1.7a · Kafka consumer · ⏱ ~1h
+**Build:** the `reporting` service with a consumer group subscribed to
+`leave.requested` / `leave.decided` / `employee.created`.
+**Done when:** events are consumed and logged.
+
+### v1.7b · Redis counters + endpoint · ⏱ ~1h
+**Build:** increment Redis counters (pending per dept, days used per month) and
+expose `GET /api/v1/reports/departments`.
+**Done when:** submit + approve visibly changes the summary.
+
+### v1.7c · replay drill · ⏱ ~1h
+**Build:** no code — replay the topic from the start.
+**Done when:** either counts don't double (you built it idempotent) **or** you can
+explain exactly why they do → that's the v2.3 ticket.
 **Defer:** durable projection, lag dashboards (v2.3, v2.0).
 
 ---
 
 ## v1.8 · Run the whole slice end to end
 
-**Goal:** prove the four services work together.
+### v1.8a · end-to-end script · ⏱ ~1h
+**Build:** one script: create employee → cache MISS/HIT → submit leave (valid +
+overlapping) → approve → read the report.
+**Done when:** the script passes against a fresh `docker compose up -d`.
 
-- Start infra and all four services.
-- Script one flow: create employee → cache MISS/HIT → submit leave (valid +
-  overlapping) → approve → read the report.
-- Write a short `docs/v1/NOTES.md` of what you learned and what still feels
-  shaky.
-
-When this passes, **v1 is done.** Next: [v2](../v2/LEARNING_PATH.md).
+### v1.8b · NOTES.md · ⏱ ~1h
+**Build:** `docs/v1/NOTES.md` — what you learned, what still feels shaky.
+**Done when:** it's written. **v1 is done.** → [v2](../v2/LEARNING_PATH.md)
 
 ---
 

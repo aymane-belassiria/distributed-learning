@@ -13,6 +13,15 @@ reading docs — no code, no config, no answer key.
 layer only when the phase you are on needs it — then move to the deeper version.
 Never copy the full stack up front.
 
+## Session size — ~1 hour per ticket
+
+Every ticket in both tracks is scoped to **one sitting (~1 hour), because this
+gets done after work.** Each ticket ends on a green checkpoint you can see
+working, so you can stop at any sitting without leaving a half-finished mess.
+Phases keep their IDs (`v1.2`, `v2.4`) and are split into lettered sittings
+(`v1.2a`, `v1.2b`, …). If a sitting starts to sprawl, stop at the last checkpoint
+and pick up the next letter.
+
 ## Two tracks
 
 ### [v1 · The local slice → docs/v1/](docs/v1/README.md) — start here
