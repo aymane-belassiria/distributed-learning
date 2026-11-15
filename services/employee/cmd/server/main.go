@@ -20,6 +20,7 @@ import (
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	// db connection
 
 	dsn := env("DATABASE_URL", "postgres://hr:hr@localhost:54322/employee?sslmode=disable")
 	addr := env("GRPC_ADDR", ":50051")
